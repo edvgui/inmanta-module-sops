@@ -1,24 +1,18 @@
-pyupgrade = pyupgrade --py311-plus $$(find inmanta_plugins tests -type f -name '*.py')
-flake8 = flake8 inmanta_plugins tests 
-black = black inmanta_plugins tests
-black_preview = black --preview inmanta_plugins tests
 isort = isort inmanta_plugins tests
+black_preview = black --preview inmanta_plugins tests
+black = black inmanta_plugins tests
+flake8 = flake8 inmanta_plugins tests
+pyupgrade = pyupgrade --py312-plus $$(find inmanta_plugins tests -type f -name '*.py')
 
-
-.PHONY: install
-install:
-	pip install -U --upgrade-strategy=eager pip setuptools wheel
-	pip install -U --upgrade-strategy=eager -e . -c requirements.txt -r requirements.dev.txt
-
-
-.PHONY: format
 format:
-	$(isort)
-	$(black_preview)
-	$(black)
-	$(flake8)
-	$(pyupgrade)
+	uv run $(isort)
+	uv run $(black_preview)
+	uv run $(black)
+	uv run $(flake8)
+	uv run $(pyupgrade)
 
+install:
+	uv pip install -U -r requirements.dev.txt -c requirements.txt -e .
 
 .PHONY: pep8
 pep8:
