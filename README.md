@@ -1,4 +1,7 @@
-# sops Module
+# Sops module
+
+[![pypi version](https://img.shields.io/pypi/v/inmanta-module-sops.svg)](https://pypi.python.org/pypi/inmanta-module-sops/)
+[![build status](https://img.shields.io/github/actions/workflow/status/edvgui/inmanta-module-sops/continuous-integration.yml)](https://github.com/edvgui/inmanta-module-sops/actions)
 
 ## How to use
 
@@ -35,16 +38,15 @@ TODO
 
 ## Running tests
 
-1. Set up a new virtual environment, then install the module in it. The first line assumes you have ``virtualenvwrapper``
-installed. If you don't, you can replace it with `python3 -m venv .env && source .env/bin/activate`.
+1. Set up a new virtual environment using uv and install the dependencies.
 
 ```bash
-mkvirtualenv inmanta-test -p python3 -a .
-pip install -e . -c requirements.txt -r requirements.dev.txt
+uv venv -p 3.12
+make install
 ```
 
 2. Run tests
 
 ```bash
-pytest tests
+uv run pytest tests
 ```
