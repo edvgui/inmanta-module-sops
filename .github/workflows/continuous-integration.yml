@@ -53,6 +53,11 @@ jobs:
           uv venv
           uv pip install -r requirements.dev.txt -e . -c requirements.txt
 
+      - name: Setup gpg
+        run: |
+          apt-get install -y gnupg
+          gpg --batch --passphrase '' --quick-gen-key test@example.com default default
+
       - name: Run tests
         run: |
           uv run pytest tests -vvv --log-cli-level debug
