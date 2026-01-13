@@ -16,8 +16,26 @@ limitations under the License.
 Contact: edvgui@gmail.com
 """
 
+import os
+import pathlib
+
+import pytest
 from pytest_inmanta.plugin import Project
+
+from inmanta_plugins.sops import SopsBinary, find_sops_in_path
 
 
 def test_basics(project: Project) -> None:
     project.compile("import sops")
+
+
+def test_install(monkeypatch: pytest.MonkeyPatch, sops_binary: SopsBinary) -> None:
+    """
+    Make sure that the sops_binary that is currently used would be found
+    by the find_sops_in_path helper.
+    """
+    binary_path = pathlib.Path(sops_binary.path)
+
+    with monkeypatch.context() as ctx:
+        ctx.setenv("PATH", str(binary_path.parent) + ":" + os.environ["PATH"])
+        assert find_sops_in_path(binary_path.name) == sops_binary

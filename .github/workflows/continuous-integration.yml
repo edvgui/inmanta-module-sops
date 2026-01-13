@@ -48,6 +48,11 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v7
 
+      - name: Setup gpg
+        run: |
+          sudo apt-get install -y gnupg
+          gpg --batch --passphrase '' --quick-gen-key test@example.com default default
+
       - name: Install module and its dependencies
         run: |
           uv venv
