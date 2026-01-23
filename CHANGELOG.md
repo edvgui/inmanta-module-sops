@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.1.0 - ?
+## v0.1.0 - 2026-01-23
 
 - Add sops::create_value_in_vault to ensure a value exists in an encrypted sops file, and get a reference to it
 - Add sops::create_decrypted_value_reference to reference a value in a decrypted sops file
