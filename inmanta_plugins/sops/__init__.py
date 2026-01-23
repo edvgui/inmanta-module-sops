@@ -35,6 +35,7 @@ from inmanta.agent.handler import LoggerABC
 from inmanta.plugins import plugin
 from inmanta.references import Reference, reference
 from inmanta.util import dict_path
+from inmanta_plugins.sops import editor
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -129,13 +130,22 @@ def install_sops_from_github(
 
 
 def escape_path(raw_path: str) -> str:
-    return raw_path.replace(" ", r"\ ").replace('"', r"\"").replace("'", r"\'")
+    """
+    Escape a path string to make it compliant with the SOPS_EDITOR env var.
+    We escape any character that would split the path into multiple pieces.
+    """
+    return (
+        raw_path.replace("\\", "\\\\")
+        .replace(" ", "\\ ")
+        .replace('"', '\\"')
+        .replace("'", "\\'")
+    )
 
 
 @contextlib.contextmanager
 def edit_encrypted_file(
     sops_binary: SopsBinary,
-    encrypted_file_path: str,
+    encrypted_file_path: pathlib.Path,
 ) -> typing.Generator[dict, None, None]:
     """
     Open the encrypted file using sops in a subprocess, yield its content, then
@@ -150,8 +160,6 @@ def edit_encrypted_file(
     :param sops_binary: Information about the binary to use to edit the file
     :param encrypted_file_path: The path to the encrypted file we want to edit
     """
-    from inmanta_plugins.sops import editor
-
     python_path = escape_path(sys.executable)
     editor_path = escape_path(editor.__file__)
     process = subprocess.Popen(
@@ -174,6 +182,13 @@ def edit_encrypted_file(
     )
 
     def terminate() -> None:
+        """
+        Terminate the process, first try to let it finish on its own.  If
+        it doesn't, send a SIGKILL and wait one more second.  If it still
+        doesn't, raise a subprocess.TimeoutExpired exception.
+        If the process finished with a non-zero exit code, we raise a
+        subprocess.CalledProcessError.
+        """
         try:
             return_code = process.wait(timeout=1.0)
         except subprocess.TimeoutExpired:
@@ -285,7 +300,7 @@ def create_decrypted_value_reference(
 
 
 @plugin
-def create_secret_value_reference(
+def create_decrypted_value_reference_with_default(
     sops_binary: SopsBinary,
     encrypted_file_path: str,
     value_path: str,
@@ -307,11 +322,9 @@ def create_secret_value_reference(
         exists.  The file will then be updated with that value.
     """
     path = dict_path.to_path(value_path)
+    file_path = pathlib.Path(resolve_path(encrypted_file_path))
 
-    with edit_encrypted_file(
-        sops_binary,
-        resolve_path(encrypted_file_path),
-    ) as decrypted_file:
+    with edit_encrypted_file(sops_binary, file_path) as decrypted_file:
         try:
             path.get_element(decrypted_file)
         except LookupError:
@@ -325,6 +338,8 @@ def create_secret_value_reference(
     return DecryptedValueReference(
         decrypted_file=DecryptedFileReference(
             sops_binary,
+            file_path.read_text(),
+            file_path.name.split(".")[-1],
         ),
         value_path=value_path,
     )

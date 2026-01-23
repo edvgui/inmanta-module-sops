@@ -26,6 +26,7 @@ from inmanta_plugins.sops import (
     SopsBinary,
     create_decrypted_file_reference,
     create_decrypted_value_reference,
+    create_secret_value_reference,
     edit_encrypted_file,
 )
 
@@ -172,3 +173,28 @@ def test_insert_default(sops_binary: SopsBinary, tmp_path: pathlib.Path) -> None
     )
     assert password_a_ref.resolve(PythonLogger(LOGGER)) == "b"
     assert token_ref.resolve(PythonLogger(LOGGER)) == "token"
+
+    token_ref_2 = create_secret_value_reference(
+        sops_binary,
+        f"file://{encrypted_file}",
+        "token",
+        default="a",
+    )
+    other_token_ref = create_secret_value_reference(
+        sops_binary,
+        f"file://{encrypted_file}",
+        "other_token",
+        default="a",
+    )
+    with edit_encrypted_file(
+        sops_binary,
+        encrypted_file_path=str(encrypted_file),
+    ) as vault:
+        # The value already existed, the default shouldn't be inserted
+        assert vault["token"] == "token"
+
+        # The value didn't exist yet, the default should be inserted
+        assert vault["other_token"] == "a"
+
+    assert token_ref_2.resolve(PythonLogger(LOGGER)) == "token"
+    assert other_token_ref.resolve(PythonLogger(LOGGER)) == "a"
