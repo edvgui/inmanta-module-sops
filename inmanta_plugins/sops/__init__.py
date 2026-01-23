@@ -301,7 +301,7 @@ def create_decrypted_value_reference(
 
 
 @plugin
-def create_secret_value_reference(
+def create_value_in_vault(
     sops_binary: SopsBinary,
     encrypted_file_path: str,
     value_path: str,
