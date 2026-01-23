@@ -30,6 +30,7 @@ from dataclasses import dataclass
 import pydantic
 import requests
 from inmanta_plugins.config import resolve_path
+from inmanta_plugins.files import create_text_file_content_reference
 
 from inmanta.agent.handler import LoggerABC
 from inmanta.plugins import plugin
@@ -300,7 +301,7 @@ def create_decrypted_value_reference(
 
 
 @plugin
-def create_decrypted_value_reference_with_default(
+def create_secret_value_reference(
     sops_binary: SopsBinary,
     encrypted_file_path: str,
     value_path: str,
@@ -338,7 +339,7 @@ def create_decrypted_value_reference_with_default(
     return DecryptedValueReference(
         decrypted_file=DecryptedFileReference(
             sops_binary,
-            file_path.read_text(),
+            create_text_file_content_reference(encrypted_file_path),
             file_path.name.split(".")[-1],
         ),
         value_path=value_path,
