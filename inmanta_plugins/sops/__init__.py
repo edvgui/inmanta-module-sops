@@ -16,21 +16,27 @@ limitations under the License.
 Contact: edvgui@gmail.com
 """
 
+import contextlib
 import json
 import os
 import pathlib
 import platform
 import re
 import subprocess
+import sys
+import typing
 from dataclasses import dataclass
 
 import pydantic
 import requests
+from inmanta_plugins.config import resolve_path
+from inmanta_plugins.files import create_text_file_content_reference
 
 from inmanta.agent.handler import LoggerABC
 from inmanta.plugins import plugin
 from inmanta.references import Reference, reference
 from inmanta.util import dict_path
+from inmanta_plugins.sops import editor
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -124,6 +130,99 @@ def install_sops_from_github(
     return sops
 
 
+def escape_path(raw_path: str) -> str:
+    """
+    Escape a path string to make it compliant with the SOPS_EDITOR env var.
+    We escape any character that would split the path into multiple pieces.
+    """
+    return (
+        raw_path.replace("\\", "\\\\")
+        .replace(" ", "\\ ")
+        .replace('"', '\\"')
+        .replace("'", "\\'")
+    )
+
+
+@contextlib.contextmanager
+def edit_encrypted_file(
+    sops_binary: SopsBinary,
+    encrypted_file_path: pathlib.Path,
+) -> typing.Generator[dict, None, None]:
+    """
+    Open the encrypted file using sops in a subprocess, yield its content, then
+    write the returned dict back into the file.  This function is meant to be
+    used with a context manager, to make sure the modified vault is always saved
+    back into the encrypted file.
+
+    We rely on a custom executable that we use as "editor", this executable first
+    prints the content of the file on stdout, then replace the content of the file
+    with what it reads on stdin.
+
+    :param sops_binary: Information about the binary to use to edit the file
+    :param encrypted_file_path: The path to the encrypted file we want to edit
+    """
+    python_path = escape_path(sys.executable)
+    editor_path = escape_path(editor.__file__)
+    process = subprocess.Popen(
+        args=[
+            sops_binary.path,
+            "edit",
+            *sops_binary.args,
+            "--output-type",
+            "json",
+            encrypted_file_path,
+        ],
+        env={
+            **os.environ,
+            "SOPS_EDITOR": f"{python_path} {editor_path}",
+        },
+        stdout=subprocess.PIPE,
+        stdin=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+    )
+
+    def terminate() -> None:
+        """
+        Terminate the process, first try to let it finish on its own.  If
+        it doesn't, send a SIGKILL and wait one more second.  If it still
+        doesn't, raise a subprocess.TimeoutExpired exception.
+        If the process finished with a non-zero exit code, we raise a
+        subprocess.CalledProcessError.
+        """
+        try:
+            return_code = process.wait(timeout=1.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            return_code = process.wait(timeout=1.0)
+
+        stderr = process.stderr.read()
+        if return_code != 0:
+            raise subprocess.CalledProcessError(
+                return_code,
+                process.args,
+                stderr=stderr,
+            )
+
+    # Read the decrypted content of the file until EOF
+    lines = []
+    while (line := process.stdout.readline()) != "EOF\n":
+        lines.append(line)
+
+    stdout = "".join(lines)
+    if not stdout:
+        terminate()
+
+    vault = json.loads(stdout)
+    try:
+        yield vault
+    finally:
+        # Write the vault object back
+        process.stdin.write(json.dumps(vault))
+        process.stdin.close()
+        terminate()
+
+
 @reference("sops::DecryptedFileReference")
 class DecryptedFileReference(Reference[dict]):
     """
@@ -169,11 +268,11 @@ class DecryptedFileReference(Reference[dict]):
 
 @plugin
 def create_decrypted_file_reference(
-    binary: SopsBinary | Reference[SopsBinary],
+    sops_binary: SopsBinary | Reference[SopsBinary],
     encrypted_file: str | Reference[str],
     encrypted_file_type: str | Reference[str],
 ) -> DecryptedFileReference:
-    return DecryptedFileReference(binary, encrypted_file, encrypted_file_type)
+    return DecryptedFileReference(sops_binary, encrypted_file, encrypted_file_type)
 
 
 @reference("sops::DecryptedValueReference")
@@ -199,3 +298,49 @@ def create_decrypted_value_reference(
     value_path: str | Reference[str],
 ) -> DecryptedValueReference:
     return DecryptedValueReference(decrypted_file, value_path)
+
+
+@plugin
+def create_value_in_vault(
+    sops_binary: SopsBinary,
+    encrypted_file_path: str,
+    value_path: str,
+    *,
+    default: str | None = None,
+) -> DecryptedValueReference:
+    """
+    This plugin returns a reference to a encrypted value.  The difference
+    with the create_decrypted_value_reference is that this plugin can also
+    validate during compile that the encrypted_value exists, and insert a
+    default value in the encrypted file if no value has been defined yet.
+
+    :param sops_binary: The sops binary that can be used to decrypt the file.
+    :param encrypted_file_path: The path to the encrypted file in which we
+        expect to find our secret value.
+    :param value_path: The dict path expression pointing to the value within
+        the file.
+    :param default: A default value that can be added to the file if no value
+        exists.  The file will then be updated with that value.
+    """
+    path = dict_path.to_path(value_path)
+    file_path = pathlib.Path(resolve_path(encrypted_file_path))
+
+    with edit_encrypted_file(sops_binary, file_path) as decrypted_file:
+        try:
+            path.get_element(decrypted_file)
+        except LookupError:
+            if default is not None:
+                path.set_element(decrypted_file, default)
+            else:
+                raise RuntimeError(
+                    f"No value at path {value_path} in encrypted_file {encrypted_file_path}"
+                )
+
+    return DecryptedValueReference(
+        decrypted_file=DecryptedFileReference(
+            sops_binary,
+            create_text_file_content_reference(encrypted_file_path),
+            file_path.name.split(".")[-1],
+        ),
+        value_path=value_path,
+    )
