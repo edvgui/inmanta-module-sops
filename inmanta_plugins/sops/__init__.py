@@ -26,8 +26,8 @@ import re
 import subprocess
 import sys
 import typing
-from dataclasses import dataclass
 import uuid
+from dataclasses import dataclass
 
 import pydantic
 import requests
@@ -80,12 +80,17 @@ def find_sops_in_path(
             try:
                 # Found a sops binary, execute it to resolve the version
                 args = [str(binary), "-v"]
-                version_output = subprocess.check_output(args, text=True)
+                version_output = subprocess.check_output(
+                    args,
+                    text=True,
+                    stderr=subprocess.PIPE,
+                    env=os.environ,
+                )
             except subprocess.CalledProcessError as e:
                 # Log the output of the command, for debug purposes
                 logger.debug(
                     "$ %(cmd)s",
-                    cmd=" ".join(e.args),
+                    cmd=" ".join(e.cmd),
                     stderr=e.stderr,
                     returncode=e.returncode,
                 )
@@ -236,7 +241,9 @@ class SopsBinaryReference(Reference[SopsBinary]):
                     # and install the binary from github there
                     for folder in system_path():
                         try:
-                            return install_sops_from_github(folder / "sops", logger=logger)
+                            return install_sops_from_github(
+                                folder / "sops", logger=logger
+                            )
                         except PermissionError:
                             pass
                     else:
@@ -415,12 +422,14 @@ class DecryptedFileReference(Reference[dict]):
                     "json",
                 ],
                 input=encrypted_file,
+                stderr=subprocess.PIPE,
                 text=True,
+                env=os.environ,
             )
         except subprocess.CalledProcessError as exc:
             logger.error(
                 "$ %(cmd)s",
-                cmd=" ".join(exc.args),
+                cmd=" ".join(exc.cmd),
                 stderr=str(exc.stderr),
                 returncode=exc.returncode,
             )
