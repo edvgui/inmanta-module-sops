@@ -83,7 +83,7 @@ def find_sops_in_path(
             except subprocess.CalledProcessError as e:
                 # Log the output of the command, for debug purposes
                 logger.debug(
-                    "%(cmd)s",
+                    "$ %(cmd)s",
                     cmd=" ".join(e.args),
                     stderr=e.stderr,
                     returncode=e.returncode,
@@ -334,7 +334,7 @@ def edit_encrypted_file(
         stderr = process.stderr.read()
         if return_code != 0:
             logger.error(
-                "%(cmd)s",
+                "$ %(cmd)s",
                 cmd=" ".join(process.args),
                 stderr=stderr,
                 returncode=return_code,
@@ -403,7 +403,7 @@ class DecryptedFileReference(Reference[dict]):
             )
         except subprocess.CalledProcessError as exc:
             logger.error(
-                "%(cmd)s",
+                "$ %(cmd)s",
                 cmd=" ".join(exc.args),
                 stderr=str(exc.stderr),
                 returncode=exc.returncode,
