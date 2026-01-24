@@ -260,8 +260,6 @@ def edit_encrypted_file(
         args=[
             sops_binary.path,
             "edit",
-            "--output-type",
-            "json",
             encrypted_file_path,
         ],
         env={
@@ -347,8 +345,8 @@ class DecryptedFileReference(Reference[dict]):
             [
                 binary.path,
                 "decrypt",
-                "--input-type",
-                encrypted_file_type,
+                "--filename-override",
+                f"file.{encrypted_file_type}",
                 "--output-type",
                 "json",
             ],

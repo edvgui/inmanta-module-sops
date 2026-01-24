@@ -16,12 +16,43 @@ limitations under the License.
 Contact: edvgui@gmail.com
 """
 
+import json
 import pathlib
 import sys
 
+import yaml
+
+
+def parse_file(content: str, extension: str) -> dict:
+    match extension:
+        case "json":
+            return json.loads(content)
+        case "yml" | "yaml":
+            return yaml.safe_dump(content)
+        case _:
+            raise ValueError(
+                f"Unsupported extension, can not parse file ending in {extension}"
+            )
+
+
+def serialize_file(content: dict, extension: str) -> str:
+    match extension:
+        case "json":
+            return json.dumps(content, indent=2)
+        case "yml" | "yaml":
+            return yaml.safe_dump(content, indent=2)
+        case _:
+            raise ValueError(
+                f"Unsupported extension, can not write to file ending in {extension}"
+            )
+
+
 if __name__ == "__main__":
     FILE = pathlib.Path(sys.argv[1])
-    print(FILE.read_text())
+    extension = FILE.name.split(".")[-1]
+    parsed_content = parse_file(FILE.read_text(), extension)
+    print(json.dumps(parsed_content))
     print("EOF")
     sys.stdout.flush()
-    FILE.write_text(sys.stdin.read())
+    parsed_content = json.loads(sys.stdin.read())
+    FILE.write_text(serialize_file(parsed_content))
