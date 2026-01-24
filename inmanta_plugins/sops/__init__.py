@@ -45,7 +45,6 @@ LOGGER = logging.getLogger(__name__)
 @dataclass(frozen=True, kw_only=True)
 class SopsBinary:
     path: str
-    args: list[str]
     version: str
 
 
@@ -90,7 +89,6 @@ def find_sops_in_path(
 
             return SopsBinary(
                 path=str(path),
-                args=[],
                 version=matched.group(1),
             )
 
@@ -123,7 +121,6 @@ def install_sops_from_github(
     # Define the desired sops path
     sops = SopsBinary(
         path=str(path),
-        args=[],
         version=version,
     )
 
@@ -265,7 +262,6 @@ def edit_encrypted_file(
         args=[
             sops_binary.path,
             "edit",
-            *sops_binary.args,
             "--output-type",
             "json",
             encrypted_file_path,
@@ -349,7 +345,6 @@ class DecryptedFileReference(Reference[dict]):
             [
                 binary.path,
                 "decrypt",
-                *binary.args,
                 "--input-type",
                 encrypted_file_type,
                 "--output-type",

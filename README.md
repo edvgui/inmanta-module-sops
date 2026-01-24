@@ -31,9 +31,93 @@ guillaume@framework:/tmp/sops-test$ sops --pgp 49CAF9DCDAC1643FCBDFCAB93BF8D3BC3
 guillaume@framework:/tmp/sops-test$ sops edit test.encrypted.yml
 ```
 
-5. Reference the sops file in the model.
+5. Reference existing value in sops file in the model.
 
-TODO
+<x-example-simple>
+
+```
+import mitogen
+import files
+import files::host
+import sops
+
+import std
+
+host = std::Host(
+    name="localhost",
+    os=std::linux,
+    via=mitogen::Local(),
+)
+
+files::TextFile(
+    host=host,
+    path='/example/folder/a.secret',
+    owner='guillaume',
+    group='guillaume',
+    purged=false,
+    # The content of the file should be the password of user "a"
+    content=sops::create_decrypted_value_reference(
+        # The password is located in the decrypted vault file
+        sops::create_decrypted_file_reference(
+            # The vault should be decrypted with sops, which is
+            # installed by this reference.
+            sops::create_sops_binary_reference(),
+            # The encrypted content of the file can be extracted
+            # using this reference
+            files::create_text_file_content_reference(
+                "file:///example/folder/test.yml",
+            ),
+            'yml',
+        ),
+        "users[name=a].password",
+    ),
+)
+
+```
+
+</x-example-simple>
+
+6. (Alternatively) Reference value in sops file, create it if it doesn't exist.
+
+<x-example-generate>
+
+```
+import mitogen
+import files
+import files::host
+import sops
+
+import std
+
+host = std::Host(
+    name="localhost",
+    os=std::linux,
+    via=mitogen::Local(),
+)
+
+files::TextFile(
+    host=host,
+    path='/example/folder/a.secret',
+    owner='guillaume',
+    group='guillaume',
+    purged=false,
+    # The content of the file should be the password of user "a", if no password
+    # for user a has been defined, create one with default value "b"
+    content=sops::create_value_in_vault(
+        # The vault should be decrypted with sops, which is
+        # installed by this reference.
+        sops::create_sops_binary_reference(),
+        # The vault is available at this path
+        "file:///example/folder/test.yml",
+        # This is the location of the password within the vault
+        "users[name=a].password",
+        default="b",
+    ),
+)
+
+```
+
+</x-example-generate>
 
 
 ## Running tests
