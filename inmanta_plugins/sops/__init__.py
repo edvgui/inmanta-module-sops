@@ -107,7 +107,7 @@ def find_sops_in_path(
 
             # Log the output of the command, for debug purposes
             logger.debug(
-                "%(cmd)s",
+                "$ %(cmd)s",
                 cmd=" ".join(args),
                 stdout=version_output,
                 returncode=0,
