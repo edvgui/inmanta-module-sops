@@ -1,3 +1,2 @@
-inmanta-core>=6
-inmanta-dev-dependencies[module]
-pytest-inmanta>=2
+inmanta-dev-dependencies[module,extension]==2.189.0
+types-requests

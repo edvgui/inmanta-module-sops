@@ -62,4 +62,5 @@ jobs:
       - name: Run tests
         run: |
           source .venv/bin/activate
+          echo $UID > /proc/self/loginuid
           pytest tests -vvv --log-cli-level debug

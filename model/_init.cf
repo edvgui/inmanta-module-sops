@@ -24,12 +24,9 @@ entity SopsBinary extends std::Dataclass:
     env var.
 
     :param path: Path to the binary in the orchestrator filesystem.
-    :param args: A list of arguments to pass to the sops command used to
-        decrypt sops files.
     :param version: The version of sops contained in the binary.
     """
     string path
-    string[] args
     string version
 end
 
