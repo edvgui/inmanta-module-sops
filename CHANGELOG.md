@@ -3,6 +3,7 @@
 ## v0.2.2 - ?
 
 - Rename sops binary instead of creating symlink: handle race-condition when multiple agents install the same binary at the same time.
+- Edit vault file only once when using sops::create_value_in_vault multiple times in a compile.
 
 ## v0.2.1 - 2026-01-24
 
