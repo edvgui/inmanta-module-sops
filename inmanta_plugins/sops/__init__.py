@@ -17,6 +17,7 @@ Contact: edvgui@gmail.com
 """
 
 import contextlib
+import functools
 import json
 import logging
 import os
@@ -36,6 +37,7 @@ from inmanta_plugins.config import resolve_path
 from inmanta_plugins.files import create_text_file_content_reference
 
 from inmanta.agent.handler import LoggerABC, PythonLogger
+from inmanta.compiler import finalizer
 from inmanta.plugins import plugin
 from inmanta.references import Reference, reference
 from inmanta.util import dict_path
@@ -260,6 +262,17 @@ class SopsBinaryReference(Reference[SopsBinary]):
                     raise
 
 
+@functools.lru_cache
+def _create_sops_binary_reference(
+    install_to_path: str | None = None,
+    install_from_github: bool = True,
+) -> SopsBinaryReference:
+    return SopsBinaryReference(
+        install_to_path=install_to_path,
+        install_from_github=install_from_github,
+    )
+
+
 @plugin
 def create_sops_binary_reference(
     install_to_path: str | None = None,
@@ -280,7 +293,7 @@ def create_sops_binary_reference(
     :param install_from_github: Whether the binary should be installed from
         github when it can not be found locally.
     """
-    return SopsBinaryReference(
+    return _create_sops_binary_reference(
         install_to_path=install_to_path,
         install_from_github=install_from_github,
     )
@@ -480,6 +493,51 @@ def create_decrypted_value_reference(
     return DecryptedValueReference(decrypted_file, value_path)
 
 
+@functools.lru_cache
+def share_edit_encrypted_file(
+    sops_binary: SopsBinary,
+    encrypted_file_path: pathlib.Path,
+    *,
+    logger: LoggerABC | None = None,
+) -> dict:
+    """
+    More performant alternative to edit_encrypted_file.  This function opens the
+    file, gets the vault and let it be modified by whomever calls the function.
+    At the end of the compile, the vault is written back to file.  This function
+    should only be used in compiles, where the finalizers are triggered.  Otherwise
+    the file will remain open and unmodified and the cache won't be cleared.
+    """
+
+    def open_encrypted_file() -> typing.Iterator[dict]:
+        # Convert the contextmanager into an iterator, so we can
+        # split the code execution of the opening and the closing of the file
+        with edit_encrypted_file(
+            sops_binary, encrypted_file_path, logger=logger
+        ) as vault:
+            yield vault
+
+    # Open the file and get the decrypted vault
+    encrypted_file = open_encrypted_file()
+    vault = next(encrypted_file)
+
+    def close_encrypted_file() -> None:
+        # Now we can close the file, this will raise a StopIteration as we reach
+        # the end of the iterator (this is expected)
+        with contextlib.suppress(StopIteration):
+            next(encrypted_file)
+
+    # Make sure the file is closed at the end of the compile
+    finalizer(close_encrypted_file)
+
+    return vault
+
+
+@finalizer
+def clear_caches() -> None:
+    _create_sops_binary_reference.cache_clear()
+    share_edit_encrypted_file.cache_clear()
+
+
 @plugin
 def create_value_in_vault(
     sops_binary: SopsBinary | Reference[SopsBinary],
@@ -502,9 +560,6 @@ def create_value_in_vault(
     :param default: A default value that can be added to the file if no value
         exists.  The file will then be updated with that value.
     """
-    path = dict_path.to_path(value_path)
-    file_path = pathlib.Path(resolve_path(encrypted_file_path))
-
     # Resolve the binary, as we will need to use in this compile
     match sops_binary:
         case Reference():
@@ -512,16 +567,19 @@ def create_value_in_vault(
         case _:
             resolved_sops_binary = sops_binary
 
-    with edit_encrypted_file(resolved_sops_binary, file_path) as decrypted_file:
-        try:
-            path.get_element(decrypted_file)
-        except LookupError:
-            if default is not None:
-                path.set_element(decrypted_file, default)
-            else:
-                raise RuntimeError(
-                    f"No value at path {value_path} in encrypted_file {encrypted_file_path}"
-                )
+    path = dict_path.to_path(value_path)
+    file_path = pathlib.Path(resolve_path(encrypted_file_path))
+
+    vault = share_edit_encrypted_file(resolved_sops_binary, file_path)
+    try:
+        path.get_element(vault)
+    except LookupError:
+        if default is not None:
+            path.set_element(vault, default)
+        else:
+            raise RuntimeError(
+                f"No value at path {value_path} in encrypted_file {encrypted_file_path}"
+            )
 
     return DecryptedValueReference(
         decrypted_file=DecryptedFileReference(

@@ -20,6 +20,7 @@ import logging
 import pathlib
 
 from inmanta.agent.handler import PythonLogger
+from inmanta.compiler import Finalizers
 from inmanta_plugins.sops import (
     SopsBinary,
     create_decrypted_file_reference,
@@ -132,6 +133,10 @@ def test_insert_default(sops_binary: SopsBinary, sops_vault: pathlib.Path) -> No
         "other_token",
         default="a",
     )
+
+    # Call the finalizers manually as we didn't make a compile
+    Finalizers.call_finalizers()
+
     with edit_encrypted_file(
         sops_binary,
         encrypted_file_path=sops_vault,
