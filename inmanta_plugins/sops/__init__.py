@@ -26,6 +26,7 @@ import re
 import subprocess
 import sys
 import typing
+import socket
 import uuid
 from dataclasses import dataclass
 
@@ -41,6 +42,7 @@ from inmanta.util import dict_path
 from inmanta_plugins.sops import editor
 
 LOGGER = logging.getLogger(__name__)
+CMD_LINE_PREFIX = f"inmanta@{socket.gethostname()}$"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -89,7 +91,8 @@ def find_sops_in_path(
             except subprocess.CalledProcessError as e:
                 # Log the output of the command, for debug purposes
                 logger.debug(
-                    "$ %(cmd)s",
+                    "%(prefix)s %(cmd)s",
+                    prefix=CMD_LINE_PREFIX,
                     cmd=" ".join(e.cmd),
                     stderr=e.stderr,
                     returncode=e.returncode,
@@ -107,7 +110,8 @@ def find_sops_in_path(
 
             # Log the output of the command, for debug purposes
             logger.debug(
-                "$ %(cmd)s",
+                "%(prefix)s %(cmd)s",
+                prefix=CMD_LINE_PREFIX,
                 cmd=" ".join(args),
                 stdout=version_output,
                 returncode=0,
@@ -357,7 +361,8 @@ def edit_encrypted_file(
         stderr = process.stderr.read()
         if return_code != 0:
             logger.error(
-                "$ %(cmd)s",
+                "%(prefix)s %(cmd)s",
+                prefix=CMD_LINE_PREFIX,
                 cmd=" ".join(process.args),
                 stderr=stderr,
                 returncode=return_code,
@@ -428,7 +433,8 @@ class DecryptedFileReference(Reference[dict]):
             )
         except subprocess.CalledProcessError as exc:
             logger.error(
-                "$ %(cmd)s",
+                "%(prefix)s %(cmd)s",
+                prefix=CMD_LINE_PREFIX,
                 cmd=" ".join(exc.cmd),
                 stderr=str(exc.stderr),
                 returncode=exc.returncode,
