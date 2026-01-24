@@ -105,7 +105,7 @@ def test_insert_default(sops_binary: SopsBinary, sops_vault: pathlib.Path) -> No
         create_decrypted_file_reference(
             sops_binary,
             encrypted,
-            "json",
+            "yml",
         ),
         "users[name=a].password",
     )
@@ -113,7 +113,7 @@ def test_insert_default(sops_binary: SopsBinary, sops_vault: pathlib.Path) -> No
         create_decrypted_file_reference(
             sops_binary,
             encrypted,
-            "json",
+            "yaml",
         ),
         "token",
     )

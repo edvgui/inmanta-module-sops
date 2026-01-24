@@ -2,6 +2,8 @@
 
 ## v0.2.1 - ?
 
+- Don't convert vault file to json when using sops::create_value_in_vault
+- Add logs when running subprocesses and installing sops binary from github
 
 ## v0.2.0 - 2026-01-24
 

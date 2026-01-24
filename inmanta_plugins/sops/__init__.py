@@ -23,9 +23,11 @@ import os
 import pathlib
 import platform
 import re
+import socket
 import subprocess
 import sys
 import typing
+import uuid
 from dataclasses import dataclass
 
 import pydantic
@@ -40,6 +42,7 @@ from inmanta.util import dict_path
 from inmanta_plugins.sops import editor
 
 LOGGER = logging.getLogger(__name__)
+CMD_LINE_PREFIX = f"inmanta@{socket.gethostname()}$"
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -59,6 +62,7 @@ def find_sops_in_path(
     binary_name: str = "sops",
     *,
     path: list[pathlib.Path] | None = None,
+    logger: LoggerABC | None = None,
 ) -> SopsBinary:
     """
     Try to find sops in the current file system, which exploring the PATH
@@ -67,6 +71,9 @@ def find_sops_in_path(
     :param binary_name: The name for the binary containing the sops tool.
     :param path: A custom list of folder to explore instead of the system's PATH env var.
     """
+    if logger is None:
+        logger = PythonLogger(LOGGER)
+
     if path is None:
         path = system_path()
 
@@ -74,11 +81,41 @@ def find_sops_in_path(
         if (binary := folder / binary_name).exists():
             try:
                 # Found a sops binary, execute it to resolve the version
-                version_output = subprocess.check_output([str(binary), "-v"], text=True)
+                args = [str(binary), "-v"]
+                version_output = subprocess.check_output(
+                    args,
+                    text=True,
+                    stderr=subprocess.PIPE,
+                    env=os.environ,
+                )
             except subprocess.CalledProcessError as e:
+                # Log the output of the command, for debug purposes
+                logger.debug(
+                    "%(prefix)s %(cmd)s",
+                    prefix=CMD_LINE_PREFIX,
+                    cmd=" ".join(e.cmd),
+                    stderr=e.stderr,
+                    returncode=e.returncode,
+                )
                 raise RuntimeError(
                     f"Invalid binary {binary}, it doesn't recognize flag -v"
                 ) from e
+            except PermissionError as e:
+                # The file can not be executed, log the error and try to find it
+                # elsewhere
+                logger.debug(str(e))
+                raise RuntimeError(
+                    f"Invalid binary {binary}, it is not executable"
+                ) from e
+
+            # Log the output of the command, for debug purposes
+            logger.debug(
+                "%(prefix)s %(cmd)s",
+                prefix=CMD_LINE_PREFIX,
+                cmd=" ".join(args),
+                stdout=version_output,
+                returncode=0,
+            )
 
             # Try to parse the output version
             matched = re.match(r"^sops (\d+\.\d+\.\d+)[^\d]", version_output)
@@ -98,6 +135,8 @@ def find_sops_in_path(
 def install_sops_from_github(
     path: pathlib.Path,
     version: str = "3.11.0",
+    *,
+    logger: LoggerABC | None = None,
 ) -> SopsBinary:
     """
     Install a binary at the given path.  No file must exist at the path location.
@@ -106,6 +145,9 @@ def install_sops_from_github(
     :param path: The path at which the sops binary should be created.
     :param version: The version to download from github.
     """
+    if logger is None:
+        logger = PythonLogger(LOGGER)
+
     if path.exists():
         raise RuntimeError(f"A file already exist at path {path}")
 
@@ -124,8 +166,13 @@ def install_sops_from_github(
         version=version,
     )
 
+    # Download the file in a temporary file, then move it where the sops binary
+    # should go.  We do this in case multiple handlers try to place the binary
+    # at the same place, at the same time
+    temp_binary = path.with_name(f"sops-{uuid.uuid4()}")
+
     # Open the file first, to make sure we have permission to write to it
-    with open(sops.path, "wb") as f:
+    with open(str(temp_binary), "wb") as f:
         # Download the sops binary and place it in the file
         with requests.get(
             (
@@ -134,12 +181,22 @@ def install_sops_from_github(
             ),
             stream=True,
         ) as r:
+            logger.debug(
+                "%(request_method)s %(request_url)s: %(response_status)d (%(response_reason)s)",
+                request_method=r.request.method,
+                request_url=r.request.url,
+                response_status=r.status_code,
+                response_reason=r.reason,
+            )
             r.raise_for_status()
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
 
     # Make sure that the sops binary is executable
-    pathlib.Path(sops.path).chmod(755)
+    temp_binary.chmod(0o755)
+
+    # Move the binary where the sops file is expected
+    path.symlink_to(str(temp_binary))
 
     return sops
 
@@ -165,11 +222,15 @@ class SopsBinaryReference(Reference[SopsBinary]):
             # Try to find the binary at the given path
             binary_path = pathlib.Path(self.install_to_path)
             try:
-                return find_sops_in_path(binary_path.name, path=[binary_path.parent])
+                return find_sops_in_path(
+                    binary_path.name,
+                    path=[binary_path.parent],
+                    logger=logger,
+                )
             except LookupError:
                 if self.install_from_github:
                     # Fallback to github install
-                    return install_sops_from_github(binary_path)
+                    return install_sops_from_github(binary_path, logger=logger)
                 else:
                     # Nothing we can do, raise initial error
                     raise
@@ -177,14 +238,16 @@ class SopsBinaryReference(Reference[SopsBinary]):
         else:
             try:
                 # Try to find any binary named sops in the system path
-                return find_sops_in_path()
+                return find_sops_in_path(logger=logger)
             except LookupError:
                 if self.install_from_github:
                     # We need to find an editable folder in the path
                     # and install the binary from github there
                     for folder in system_path():
                         try:
-                            install_sops_from_github(folder / "sops")
+                            return install_sops_from_github(
+                                folder / "sops", logger=logger
+                            )
                         except PermissionError:
                             pass
                     else:
@@ -240,6 +303,8 @@ def escape_path(raw_path: str) -> str:
 def edit_encrypted_file(
     sops_binary: SopsBinary,
     encrypted_file_path: pathlib.Path,
+    *,
+    logger: LoggerABC | None = None,
 ) -> typing.Generator[dict, None, None]:
     """
     Open the encrypted file using sops in a subprocess, yield its content, then
@@ -254,15 +319,16 @@ def edit_encrypted_file(
     :param sops_binary: Information about the binary to use to edit the file
     :param encrypted_file_path: The path to the encrypted file we want to edit
     """
+    if logger is None:
+        logger = PythonLogger(LOGGER)
+
     python_path = escape_path(sys.executable)
     editor_path = escape_path(editor.__file__)
     process = subprocess.Popen(
         args=[
             sops_binary.path,
             "edit",
-            "--output-type",
-            "json",
-            encrypted_file_path,
+            str(encrypted_file_path),
         ],
         env={
             **os.environ,
@@ -294,6 +360,13 @@ def edit_encrypted_file(
         assert process.stderr is not None
         stderr = process.stderr.read()
         if return_code != 0:
+            logger.error(
+                "%(prefix)s %(cmd)s",
+                prefix=CMD_LINE_PREFIX,
+                cmd=" ".join(process.args),
+                stderr=stderr,
+                returncode=return_code,
+            )
             raise subprocess.CalledProcessError(
                 return_code,
                 process.args,
@@ -343,18 +416,30 @@ class DecryptedFileReference(Reference[dict]):
         encrypted_file_type = self.resolve_other(self.encrypted_file_type, logger)
 
         # Run existing binary to decrypt the file
-        output = subprocess.check_output(
-            [
-                binary.path,
-                "decrypt",
-                "--input-type",
-                encrypted_file_type,
-                "--output-type",
-                "json",
-            ],
-            input=encrypted_file,
-            text=True,
-        )
+        try:
+            output = subprocess.check_output(
+                [
+                    binary.path,
+                    "decrypt",
+                    "--filename-override",
+                    f"file.{encrypted_file_type}",
+                    "--output-type",
+                    "json",
+                ],
+                input=encrypted_file,
+                stderr=subprocess.PIPE,
+                text=True,
+                env=os.environ,
+            )
+        except subprocess.CalledProcessError as exc:
+            logger.error(
+                "%(prefix)s %(cmd)s",
+                prefix=CMD_LINE_PREFIX,
+                cmd=" ".join(exc.cmd),
+                stderr=str(exc.stderr),
+                returncode=exc.returncode,
+            )
+            raise
 
         # Output should always be a dict
         # https://github.com/getsops/sops?tab=readme-ov-file#36top-level-arrays
