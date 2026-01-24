@@ -196,7 +196,7 @@ def install_sops_from_github(
     temp_binary.chmod(0o755)
 
     # Move the binary where the sops file is expected
-    path.symlink_to(str(temp_binary))
+    temp_binary.replace(sops.path)
 
     return sops
 

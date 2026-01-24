@@ -2,6 +2,7 @@
 
 ## v0.2.2 - ?
 
+- Rename sops binary instead of creating symlink: handle race-condition when multiple agents install the same binary at the same time.
 
 ## v0.2.1 - 2026-01-24
 
