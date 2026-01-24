@@ -18,6 +18,7 @@ Contact: edvgui@gmail.com
 
 import contextlib
 import json
+import logging
 import os
 import pathlib
 import platform
@@ -32,11 +33,13 @@ import requests
 from inmanta_plugins.config import resolve_path
 from inmanta_plugins.files import create_text_file_content_reference
 
-from inmanta.agent.handler import LoggerABC
+from inmanta.agent.handler import LoggerABC, PythonLogger
 from inmanta.plugins import plugin
 from inmanta.references import Reference, reference
 from inmanta.util import dict_path
 from inmanta_plugins.sops import editor
+
+LOGGER = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -46,17 +49,28 @@ class SopsBinary:
     version: str
 
 
-def find_sops_in_path(binary_name: str = "sops") -> SopsBinary:
+def system_path() -> list[pathlib.Path]:
+    """
+    Return a list of paths representing the paths defined in the PATH env var.
+    """
+    return [pathlib.Path(p) for p in os.environ["PATH"].split(":")]
+
+
+def find_sops_in_path(
+    binary_name: str = "sops", *, path: list[pathlib.Path] | None
+) -> SopsBinary:
     """
     Try to find sops in the current file system, which exploring the PATH
     environment variable.
 
     :param binary_name: The name for the binary containing the sops tool.
+    :param path: A custom list of folder to explore instead of the system's PATH env var.
     """
-    PATH = os.environ["PATH"].split(":")
+    if path is None:
+        path = system_path()
 
-    for folder in PATH:
-        if (path := pathlib.Path(folder) / binary_name).exists():
+    for folder in path:
+        if (path := folder / binary_name).exists():
             try:
                 # Found a sops binary, execute it to resolve the version
                 version_output = subprocess.check_output([str(path), "-v"], text=True)
@@ -111,16 +125,17 @@ def install_sops_from_github(
         version=version,
     )
 
-    # Download the sops binary and place it in the temporary folder
-    with requests.get(
-        (
-            "https://github.com/getsops/sops/releases/download/"
-            f"v{sops.version}/sops-v{sops.version}.linux.{architecture}"
-        ),
-        stream=True,
-    ) as r:
-        r.raise_for_status()
-        with open(sops.path, "wb") as f:
+    # Open the file first, to make sure we have permission to write to it
+    with open(sops.path, "wb") as f:
+        # Download the sops binary and place it in the file
+        with requests.get(
+            (
+                "https://github.com/getsops/sops/releases/download/"
+                f"v{sops.version}/sops-v{sops.version}.linux.{architecture}"
+            ),
+            stream=True,
+        ) as r:
+            r.raise_for_status()
             for chunk in r.iter_content(chunk_size=8192):
                 f.write(chunk)
 
@@ -128,6 +143,87 @@ def install_sops_from_github(
     pathlib.Path(sops.path).chmod(755)
 
     return sops
+
+
+@reference("sops::SopsBinaryReference")
+class SopsBinaryReference(Reference[SopsBinary]):
+    """
+    Create a reference that makes sure the sops binary is installed on the
+    system that needs to resolve the reference.
+    """
+
+    def __init__(
+        self,
+        install_to_path: str | None = None,
+        install_from_github: bool = True,
+    ):
+        super().__init__()
+        self.install_to_path = install_to_path
+        self.install_from_github = install_from_github
+
+    def resolve(self, logger: LoggerABC) -> SopsBinary:
+        if self.install_to_path is not None:
+            # Try to find the binary at the given path
+            binary_path = pathlib.Path(self.install_to_path)
+            try:
+                return find_sops_in_path(
+                    binary_path.name, path=[str(binary_path.parent)]
+                )
+            except LookupError:
+                if self.install_from_github:
+                    # Fallback to github install
+                    return install_sops_from_github(binary_path)
+                else:
+                    # Nothing we can do, raise initial error
+                    raise
+
+        else:
+            try:
+                # Try to find any binary named sops in the system path
+                return find_sops_in_path()
+            except LookupError:
+                if self.install_from_github:
+                    # We need to find an editable folder in the path
+                    # and install the binary from github there
+                    for folder in system_path():
+                        try:
+                            install_sops_from_github(folder / "sops")
+                        except PermissionError:
+                            pass
+                    else:
+                        raise RuntimeError(
+                            "Failed to install sops. "
+                            f"None of the folder provided in the system path are writable: {system_path()}"
+                        )
+                else:
+                    # Nothing we can do, raise initial error
+                    raise
+
+
+@plugin
+def create_sops_binary_reference(
+    install_to_path: str | None = None,
+    install_from_github: bool = True,
+) -> SopsBinaryReference:
+    """
+    Create a reference to a working sops binary in the given file system.
+
+    :param install_to_path: When a path is provided, we will look for the
+        sops binary at the given path.  The path should include the binary
+        name.  If the sops binary can not be found, and install_from_github
+        is False, a LookupError will be raised.
+        If no path is provided, teh reference will try to find a binary named
+        "sops" anywhere in the folder defined in the user's PATH env var. If
+        the sops binary can not be found, and install_from_github is True, we
+        will try to install the binary in the first writable path.  Otherwise
+        a LookupError will be raised.
+    :param install_from_github: Whether the binary should be installed from
+        github when it can not be found locally.
+    """
+    return SopsBinaryReference(
+        install_to_path=install_to_path,
+        install_from_github=install_from_github,
+    )
 
 
 def escape_path(raw_path: str) -> str:
@@ -302,7 +398,7 @@ def create_decrypted_value_reference(
 
 @plugin
 def create_value_in_vault(
-    sops_binary: SopsBinary,
+    sops_binary: SopsBinary | Reference[SopsBinary],
     encrypted_file_path: str,
     value_path: str,
     *,
@@ -325,7 +421,14 @@ def create_value_in_vault(
     path = dict_path.to_path(value_path)
     file_path = pathlib.Path(resolve_path(encrypted_file_path))
 
-    with edit_encrypted_file(sops_binary, file_path) as decrypted_file:
+    # Resolve the binary, as we will need to use in this compile
+    match sops_binary:
+        case Reference():
+            resolved_sops_binary = sops_binary.get(PythonLogger(LOGGER))
+        case _:
+            resolved_sops_binary = sops_binary
+
+    with edit_encrypted_file(resolved_sops_binary, file_path) as decrypted_file:
         try:
             path.get_element(decrypted_file)
         except LookupError:
