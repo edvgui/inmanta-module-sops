@@ -163,8 +163,8 @@ def install_sops_from_github(
                 "%(request_method)s %(request_url)s: %(response_status)d (%(response_reason)s)",
                 request_method=r.request.method,
                 request_url=r.request.url,
-                request_status=r.status_code,
-                request_reason=r.reason,
+                response_status=r.status_code,
+                response_reason=r.reason,
             )
             r.raise_for_status()
             for chunk in r.iter_content(chunk_size=8192):
