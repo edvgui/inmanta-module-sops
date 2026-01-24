@@ -71,24 +71,24 @@ def find_sops_in_path(
         path = system_path()
 
     for folder in path:
-        if (path := folder / binary_name).exists():
+        if (binary := folder / binary_name).exists():
             try:
                 # Found a sops binary, execute it to resolve the version
-                version_output = subprocess.check_output([str(path), "-v"], text=True)
+                version_output = subprocess.check_output([str(binary), "-v"], text=True)
             except subprocess.CalledProcessError as e:
                 raise RuntimeError(
-                    f"Invalid binary {path}, it doesn't recognize flag -v"
+                    f"Invalid binary {binary}, it doesn't recognize flag -v"
                 ) from e
 
             # Try to parse the output version
             matched = re.match(r"^sops (\d+\.\d+\.\d+)[^\d]", version_output)
             if not matched:
                 raise RuntimeError(
-                    f"Unexpected version format output for binary {path}: {version_output}"
+                    f"Unexpected version format output for binary {binary}: {version_output}"
                 )
 
             return SopsBinary(
-                path=str(path),
+                path=str(binary),
                 version=matched.group(1),
             )
 
@@ -165,9 +165,7 @@ class SopsBinaryReference(Reference[SopsBinary]):
             # Try to find the binary at the given path
             binary_path = pathlib.Path(self.install_to_path)
             try:
-                return find_sops_in_path(
-                    binary_path.name, path=[str(binary_path.parent)]
-                )
+                return find_sops_in_path(binary_path.name, path=[binary_path.parent])
             except LookupError:
                 if self.install_from_github:
                     # Fallback to github install
@@ -276,6 +274,9 @@ def edit_encrypted_file(
         text=True,
     )
 
+    assert process.stdin is not None
+    assert process.stdout is not None
+
     def terminate() -> None:
         """
         Terminate the process, first try to let it finish on its own.  If
@@ -290,6 +291,7 @@ def edit_encrypted_file(
             process.kill()
             return_code = process.wait(timeout=1.0)
 
+        assert process.stderr is not None
         stderr = process.stderr.read()
         if return_code != 0:
             raise subprocess.CalledProcessError(
