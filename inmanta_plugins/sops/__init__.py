@@ -572,14 +572,19 @@ def create_value_in_vault(
 
     vault = share_edit_encrypted_file(resolved_sops_binary, file_path)
     try:
-        path.get_element(vault)
+        value = path.get_element(vault)
     except LookupError:
         if default is not None:
             path.set_element(vault, default)
+            value = default
         else:
-            raise RuntimeError(
-                f"No value at path {value_path} in encrypted_file {encrypted_file_path}"
-            )
+            path.set_element(vault, None)
+            value = None
+
+    if value is None:
+        raise RuntimeError(
+            f"No value at path {value_path} in encrypted_file {encrypted_file_path}"
+        )
 
     return DecryptedValueReference(
         decrypted_file=DecryptedFileReference(
