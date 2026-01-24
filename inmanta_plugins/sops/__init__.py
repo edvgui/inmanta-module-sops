@@ -57,7 +57,9 @@ def system_path() -> list[pathlib.Path]:
 
 
 def find_sops_in_path(
-    binary_name: str = "sops", *, path: list[pathlib.Path] | None
+    binary_name: str = "sops",
+    *,
+    path: list[pathlib.Path] | None = None,
 ) -> SopsBinary:
     """
     Try to find sops in the current file system, which exploring the PATH
@@ -92,7 +94,7 @@ def find_sops_in_path(
                 version=matched.group(1),
             )
 
-    raise LookupError(f"Failed to find any binary named {binary_name} in PATH {PATH}")
+    raise LookupError(f"Failed to find any binary named {binary_name} in PATH {path}")
 
 
 def install_sops_from_github(

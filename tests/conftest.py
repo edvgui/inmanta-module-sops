@@ -20,7 +20,8 @@ import logging
 
 import pytest
 
-from inmanta_plugins.sops import SopsBinary, find_sops_in_path, install_sops_from_github
+from inmanta.agent.handler import PythonLogger
+from inmanta_plugins.sops import SopsBinary, create_sops_binary_reference
 
 LOGGER = logging.getLogger(__name__)
 
@@ -32,25 +33,8 @@ def sops_binary(tmp_path_factory: pytest.TempPathFactory) -> SopsBinary:
     If no binary can be found in the path, it downloads a version from github.
     """
     try:
-        # Check if sops is already installed on the system
-        sops = find_sops_in_path()
-        LOGGER.info(
-            "Using existing sops binary at path %s (version %s)",
-            sops.path,
-            sops.version,
-        )
-        return sops
-    except LookupError:
-        pass
-
-    # Fallback to downloading sops from github
-    sops = install_sops_from_github(
-        tmp_path_factory.mktemp("sops") / "sops",
-        version="3.11.0",
-    )
-    LOGGER.info(
-        "Using downloaded sops binary available at path %s (version %s)",
-        sops.path,
-        sops.version,
-    )
-    return sops
+        return create_sops_binary_reference().get(PythonLogger(LOGGER))
+    except RuntimeError:
+        return create_sops_binary_reference(
+            install_to_path=str(tmp_path_factory.mktemp("sops") / "sops")
+        ).get(PythonLogger(LOGGER))
