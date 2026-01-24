@@ -28,7 +28,7 @@ def parse_file(content: str, extension: str) -> dict:
         case "json":
             return json.loads(content)
         case "yml" | "yaml":
-            return yaml.safe_dump(content)
+            return yaml.safe_load(content)
         case _:
             raise ValueError(
                 f"Unsupported extension, can not parse file ending in {extension}"
@@ -55,4 +55,4 @@ if __name__ == "__main__":
     print("EOF")
     sys.stdout.flush()
     parsed_content = json.loads(sys.stdin.read())
-    FILE.write_text(serialize_file(parsed_content))
+    FILE.write_text(serialize_file(parsed_content, extension))
