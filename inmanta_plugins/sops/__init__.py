@@ -27,6 +27,7 @@ import subprocess
 import sys
 import typing
 from dataclasses import dataclass
+import uuid
 
 import pydantic
 import requests
@@ -91,6 +92,13 @@ def find_sops_in_path(
                 raise RuntimeError(
                     f"Invalid binary {binary}, it doesn't recognize flag -v"
                 ) from e
+            except PermissionError as e:
+                # The file can not be executed, log the error and try to find it
+                # elsewhere
+                logger.debug(str(e))
+                raise RuntimeError(
+                    f"Invalid binary {binary}, it is not executable"
+                ) from e
 
             # Log the output of the command, for debug purposes
             logger.debug(
@@ -149,8 +157,13 @@ def install_sops_from_github(
         version=version,
     )
 
+    # Download the file in a temporary file, then move it where the sops binary
+    # should go.  We do this in case multiple handlers try to place the binary
+    # at the same place, at the same time
+    temp_binary = path.with_name(f"sops-{uuid.uuid4()}")
+
     # Open the file first, to make sure we have permission to write to it
-    with open(sops.path, "wb") as f:
+    with open(str(temp_binary), "wb") as f:
         # Download the sops binary and place it in the file
         with requests.get(
             (
@@ -171,7 +184,10 @@ def install_sops_from_github(
                 f.write(chunk)
 
     # Make sure that the sops binary is executable
-    pathlib.Path(sops.path).chmod(755)
+    temp_binary.chmod(0o755)
+
+    # Move the binary where the sops file is expected
+    path.symlink_to(str(temp_binary))
 
     return sops
 
@@ -220,7 +236,7 @@ class SopsBinaryReference(Reference[SopsBinary]):
                     # and install the binary from github there
                     for folder in system_path():
                         try:
-                            install_sops_from_github(folder / "sops", logger=logger)
+                            return install_sops_from_github(folder / "sops", logger=logger)
                         except PermissionError:
                             pass
                     else:
