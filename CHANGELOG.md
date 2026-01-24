@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.2.1 - ?
+
+
 ## v0.2.0 - 2026-01-24
 
 - Add sops::create_sops_binary_reference to easily install sops and use it in related references
