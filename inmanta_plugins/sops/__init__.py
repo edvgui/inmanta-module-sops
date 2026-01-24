@@ -23,10 +23,10 @@ import os
 import pathlib
 import platform
 import re
+import socket
 import subprocess
 import sys
 import typing
-import socket
 import uuid
 from dataclasses import dataclass
 
