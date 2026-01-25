@@ -388,15 +388,15 @@ def edit_encrypted_file(
 
     # Read the decrypted content of the file until EOF
     lines = []
-    while (line := process.stdout.readline()) != "EOF\n":
+    while process.poll() is None and (line := process.stdout.readline()) != "EOF\n":
         lines.append(line)
 
     stdout = "".join(lines)
     if not stdout:
         terminate()
 
-    vault = json.loads(stdout)
     try:
+        vault = json.loads(stdout)
         yield vault
     finally:
         # Write the vault object back

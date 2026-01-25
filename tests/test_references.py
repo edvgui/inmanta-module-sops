@@ -18,9 +18,11 @@ Contact: edvgui@gmail.com
 
 import logging
 import pathlib
+import subprocess
 
 from inmanta.agent.handler import PythonLogger
 from inmanta.compiler import Finalizers
+import pytest
 from inmanta_plugins.sops import (
     SopsBinary,
     create_decrypted_file_reference,
@@ -158,3 +160,17 @@ def test_insert_default(sops_binary: SopsBinary, sops_vault: pathlib.Path) -> No
     assert token_ref_2.resolve(PythonLogger(LOGGER)) == "token"
     assert other_token_ref.resolve(PythonLogger(LOGGER)) == "a"
     assert no_default_token_ref.resolve(PythonLogger(LOGGER)) == "c"
+
+    # Verify that a no-change operation on the file doesn't modify
+    # the encrypted file either
+    before = sops_vault.read_text()
+    with edit_encrypted_file(sops_binary, sops_vault) as vault:
+        pass
+    assert sops_vault.read_text() == before
+
+
+def test_missing_file(sops_binary: SopsBinary) -> None:
+    fake_file = pathlib.Path("/no-a-path/vault.yml")
+    with pytest.raises(subprocess.CalledProcessError):
+        with edit_encrypted_file(sops_binary, fake_file) as vault:
+            pass
