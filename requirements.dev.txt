@@ -1,2 +1,0 @@
-inmanta-dev-dependencies[module,extension]==2.189.0
-types-requests

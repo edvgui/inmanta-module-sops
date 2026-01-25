@@ -12,7 +12,7 @@ format:
 	$(pyupgrade)
 
 install:
-	uv pip install -U -r requirements.dev.txt -c requirements.txt -e .
+	uv pip install -U -c requirements.txt -e .[dev]
 
 .PHONY: pep8
 pep8:
