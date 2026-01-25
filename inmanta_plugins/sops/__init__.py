@@ -372,7 +372,9 @@ def edit_encrypted_file(
 
         assert process.stderr is not None
         stderr = process.stderr.read()
-        if return_code != 0:
+        # Exit code 0: File was successfully changed
+        # Exit code 200: File didn't need to be changed
+        if return_code not in [0, 200]:
             logger.error(
                 "%(prefix)s %(cmd)s",
                 prefix=CMD_LINE_PREFIX,
@@ -385,18 +387,26 @@ def edit_encrypted_file(
                 process.args,
                 stderr=stderr,
             )
+        else:
+            logger.debug(
+                "%(prefix)s %(cmd)s",
+                prefix=CMD_LINE_PREFIX,
+                cmd=" ".join(process.args),
+                stderr=stderr,
+                returncode=return_code,
+            )
 
     # Read the decrypted content of the file until EOF
     lines = []
-    while (line := process.stdout.readline()) != "EOF\n":
+    while process.poll() is None and (line := process.stdout.readline()) != "EOF\n":
         lines.append(line)
 
     stdout = "".join(lines)
     if not stdout:
         terminate()
 
-    vault = json.loads(stdout)
     try:
+        vault = json.loads(stdout)
         yield vault
     finally:
         # Write the vault object back
