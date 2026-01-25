@@ -25,7 +25,7 @@ jobs:
       - name: Install module and its dependencies
         run: |
           uv venv
-          uv pip install -r requirements.dev.txt -e . -c requirements.txt
+          uv pip install -e .[dev] -c requirements.txt
 
       - name: Lint with flake8
         run: |
@@ -57,7 +57,7 @@ jobs:
       - name: Install module and its dependencies
         run: |
           uv venv
-          uv pip install -r requirements.dev.txt -e . -c requirements.txt
+          uv pip install -e .[dev] -c requirements.txt
 
       - name: Run tests
         run: |
