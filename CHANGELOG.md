@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.3.1 - ?
+
+
 ## v0.3.0 - 2026-01-25
 
 - Include module tests and fixtures in the package
