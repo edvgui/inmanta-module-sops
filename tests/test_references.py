@@ -133,6 +133,11 @@ def test_insert_default(sops_binary: SopsBinary, sops_vault: pathlib.Path) -> No
         "other_token",
         default="a",
     )
+    no_default_token_ref = create_value_in_vault(
+        sops_binary,
+        f"file://{sops_vault}",
+        "no_default_token",
+    )
 
     # Call the finalizers manually as we didn't make a compile
     Finalizers.call_finalizers()
@@ -147,5 +152,9 @@ def test_insert_default(sops_binary: SopsBinary, sops_vault: pathlib.Path) -> No
         # The value didn't exist yet, the default should be inserted
         assert vault["other_token"] == "a"
 
+        assert vault["no_default_token"] is None
+        vault["no_default_token"] = "c"
+
     assert token_ref_2.resolve(PythonLogger(LOGGER)) == "token"
     assert other_token_ref.resolve(PythonLogger(LOGGER)) == "a"
+    assert no_default_token_ref.resolve(PythonLogger(LOGGER)) == "c"
