@@ -2,13 +2,13 @@
 
 ## v0.2.3 - ?
 
+- sops::create_value_in_vault will raise an exception when the vault file can not be opened.
 
 ## v0.2.2 - 2026-01-25
 
 - Rename sops binary instead of creating symlink: handle race-condition when multiple agents install the same binary at the same time.
 - Edit vault file only once when using sops::create_value_in_vault multiple times in a compile.
 - sops::create_value_in_vault will insert a null value in the vault where the missing values are when no default is provided.
-- sops::create_value_in_vault will raise an exception when the vault file can not be opened.
 
 ## v0.2.1 - 2026-01-24
 
