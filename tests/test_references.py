@@ -20,9 +20,10 @@ import logging
 import pathlib
 import subprocess
 
+import pytest
+
 from inmanta.agent.handler import PythonLogger
 from inmanta.compiler import Finalizers
-import pytest
 from inmanta_plugins.sops import (
     SopsBinary,
     create_decrypted_file_reference,
@@ -172,5 +173,5 @@ def test_insert_default(sops_binary: SopsBinary, sops_vault: pathlib.Path) -> No
 def test_missing_file(sops_binary: SopsBinary) -> None:
     fake_file = pathlib.Path("/no-a-path/vault.yml")
     with pytest.raises(subprocess.CalledProcessError):
-        with edit_encrypted_file(sops_binary, fake_file) as vault:
+        with edit_encrypted_file(sops_binary, fake_file) as _:
             pass
