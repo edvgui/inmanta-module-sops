@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.3.1 - ?
+## v0.3.1 - 2026-01-25
 
 - Move tests out of the module's plugins to avoid code loading issues on agents.
 - Create pytest_inmanta_sops package, containing fixtures, installed with inmanta-module-sops[tests]
