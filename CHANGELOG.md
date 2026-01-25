@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.2.4 - ?
+
+
 ## v0.2.3 - 2026-01-25
 
 - sops::create_value_in_vault will raise an exception when the vault file can not be opened.
