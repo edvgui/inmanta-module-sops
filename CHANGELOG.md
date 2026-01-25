@@ -3,6 +3,7 @@
 ## v0.2.3 - ?
 
 - sops::create_value_in_vault will raise an exception when the vault file can not be opened.
+- sops::create_value_in_vault will not modify the vault file if the encrypted content stays the same.
 
 ## v0.2.2 - 2026-01-25
 

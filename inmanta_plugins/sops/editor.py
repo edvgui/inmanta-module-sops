@@ -50,9 +50,16 @@ def serialize_file(content: dict, extension: str) -> str:
 if __name__ == "__main__":
     FILE = pathlib.Path(sys.argv[1])
     extension = FILE.name.split(".")[-1]
-    parsed_content = parse_file(FILE.read_text(), extension)
-    print(json.dumps(parsed_content))
+    original_content = FILE.read_text()
+    parsed_input = parse_file(original_content, extension)
+    print(json.dumps(parsed_input))
     print("EOF")
     sys.stdout.flush()
-    parsed_content = json.loads(sys.stdin.read())
-    FILE.write_text(serialize_file(parsed_content, extension))
+    parsed_output = json.loads(sys.stdin.read())
+    if parsed_input == parsed_output:
+        # No need to update the file, give back the old value
+        # Make sure that a formatting difference doesn't create
+        # empty updates
+        FILE.write_text(original_content)
+    else:
+        FILE.write_text(serialize_file(parsed_output, extension))
