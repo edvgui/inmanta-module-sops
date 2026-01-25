@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.3.2 - ?
+
+
 ## v0.3.1 - 2026-01-25
 
 - Move tests out of the module's plugins to avoid code loading issues on agents.
