@@ -542,6 +542,10 @@ def clear_caches() -> None:
     share_edit_encrypted_file.cache_clear()
 
 
+# This global variable will contain all the missing vault values
+# collected during a compile.  At the end of the compile, we raise
+# an exception mentioning all of these, to let the user know he
+# should fill in these values in the vault.
 MISSING_VAULT_VALUES: dict[str, set[str]] = dict()
 
 
@@ -552,7 +556,6 @@ def validate_vault_completeness() -> None:
     in a vault were missing and didn't have a default to put in
     place.
     """
-    global MISSING_VAULT_VALUES
 
     def msg(vault: str, values: set[str]) -> str:
         return (
@@ -563,15 +566,20 @@ def validate_vault_completeness() -> None:
 
     try:
         if len(MISSING_VAULT_VALUES) == 1:
+            # Once vault, simpler exception
             raise RuntimeError(msg(*MISSING_VAULT_VALUES.popitem()))
-        else:
+        elif len(MISSING_VAULT_VALUES) > 1:
+            # Multiple vaults, group exceptions
             raise ExceptionGroup(
                 "Multiple vaults are incomplete.",
                 [
                     RuntimeError(msg(vault, values))
                     for vault, values in MISSING_VAULT_VALUES.items()
-                ]
+                ],
             )
+        else:
+            # All is well
+            pass
     finally:
         MISSING_VAULT_VALUES.clear()
 
@@ -598,8 +606,6 @@ def create_value_in_vault(
     :param default: A default value that can be added to the file if no value
         exists.  The file will then be updated with that value.
     """
-    global MISSING_VAULT_VALUES
-
     # Resolve the binary, as we will need to use in this compile
     match sops_binary:
         case Reference():
@@ -617,7 +623,10 @@ def create_value_in_vault(
     except LookupError:
         value = None
 
-    if default is not None and value is None:
+    if value is not None:
+        # The value is there, all is good
+        pass
+    elif default is not None:
         # The value is missing, but we have a default to put in place
         # insert the default
         path.set_element(vault, default)
@@ -627,7 +636,6 @@ def create_value_in_vault(
         # place, put a "None" placeholder in the vault that the user
         # should fill in
         path.set_element(vault, None)
-        value = None
 
     if value is None:
         # Add the value to the list of missing values, don't fail now
