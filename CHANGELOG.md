@@ -4,6 +4,7 @@
 
 - Rename sops binary instead of creating symlink: handle race-condition when multiple agents install the same binary at the same time.
 - Edit vault file only once when using sops::create_value_in_vault multiple times in a compile.
+- sops::create_value_in_vault will insert a null value in the vault where the missing values are when no default is provided.
 
 ## v0.2.1 - 2026-01-24
 

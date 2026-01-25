@@ -534,8 +534,54 @@ def share_edit_encrypted_file(
 
 @finalizer
 def clear_caches() -> None:
+    """
+    Clear the sops binary installation and vault opening cache
+    at the end of the compile.
+    """
     _create_sops_binary_reference.cache_clear()
     share_edit_encrypted_file.cache_clear()
+
+
+# This global variable will contain all the missing vault values
+# collected during a compile.  At the end of the compile, we raise
+# an exception mentioning all of these, to let the user know he
+# should fill in these values in the vault.
+MISSING_VAULT_VALUES: dict[str, set[str]] = dict()
+
+
+@finalizer
+def validate_vault_completeness() -> None:
+    """
+    Raise an exception if any of the values expected to be found
+    in a vault were missing and didn't have a default to put in
+    place.
+    """
+
+    def msg(vault: str, values: set[str]) -> str:
+        return (
+            f"Vault {vault} is incomplete, it is missing the following values: "
+            + "\n- "
+            + "\n- ".join(sorted(values))
+        )
+
+    try:
+        if len(MISSING_VAULT_VALUES) == 1:
+            # Once vault, simpler exception
+            raise RuntimeError(msg(*MISSING_VAULT_VALUES.popitem()))
+        elif len(MISSING_VAULT_VALUES) > 1:
+            # Multiple vaults, group exceptions
+            raise ExceptionGroup(
+                "Multiple vaults are incomplete.",
+                [
+                    RuntimeError(msg(vault, values))
+                    for vault, values in MISSING_VAULT_VALUES.items()
+                ],
+            )
+        else:
+            # All is well
+            pass
+    finally:
+        MISSING_VAULT_VALUES.clear()
 
 
 @plugin
@@ -570,16 +616,33 @@ def create_value_in_vault(
     path = dict_path.to_path(value_path)
     file_path = pathlib.Path(resolve_path(encrypted_file_path))
 
+    # Try to find the value in the vault
     vault = share_edit_encrypted_file(resolved_sops_binary, file_path)
     try:
-        path.get_element(vault)
+        value = path.get_element(vault)
     except LookupError:
-        if default is not None:
-            path.set_element(vault, default)
-        else:
-            raise RuntimeError(
-                f"No value at path {value_path} in encrypted_file {encrypted_file_path}"
-            )
+        value = None
+
+    if value is not None:
+        # The value is there, all is good
+        pass
+    elif default is not None:
+        # The value is missing, but we have a default to put in place
+        # insert the default
+        path.set_element(vault, default)
+        value = default
+    else:
+        # The value is missing and we don't have a default to put in
+        # place, put a "None" placeholder in the vault that the user
+        # should fill in
+        path.set_element(vault, None)
+
+    if value is None:
+        # Add the value to the list of missing values, don't fail now
+        # but wait for the end of the compile so we can report multiple
+        # missing values at once
+        missing = MISSING_VAULT_VALUES.setdefault(encrypted_file_path, set())
+        missing.add(value_path)
 
     return DecryptedValueReference(
         decrypted_file=DecryptedFileReference(
