@@ -2,6 +2,7 @@
 
 ## v0.3.2 - ?
 
+- Make sure that all references within the same executor/process pointing to the same sops binary install it only once
 
 ## v0.3.1 - 2026-01-25
 
