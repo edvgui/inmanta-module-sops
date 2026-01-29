@@ -1,5 +1,8 @@
 # Changelog
 
+## v0.3.3 - ?
+
+
 ## v0.3.2 - 2026-01-29
 
 - Make sure that all references within the same executor/process pointing to the same sops binary install it only once
