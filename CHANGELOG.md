@@ -1,6 +1,6 @@
 # Changelog
 
-## v0.3.2 - ?
+## v0.3.2 - 2026-01-29
 
 - Make sure that all references within the same executor/process pointing to the same sops binary install it only once
 - Make sure that all references within the same executor/process decrypting the same vault do it only once
