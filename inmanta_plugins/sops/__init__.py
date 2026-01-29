@@ -535,10 +535,12 @@ class DecryptedFileReference(Reference[dict]):
         self.encrypted_file_type = encrypted_file_type
 
     def resolve(self, logger: LoggerABC) -> dict:
-        binary = self.resolve_other(self.binary, logger)
-        encrypted_file = self.resolve_other(self.encrypted_file, logger)
-        encrypted_file_type = self.resolve_other(self.encrypted_file_type, logger)
-        return decrypt_file(binary, encrypted_file, encrypted_file_type)
+        with set_logger(logger):
+            return decrypt_file(
+                self.resolve_other(self.binary, logger),
+                self.resolve_other(self.encrypted_file, logger),
+                self.resolve_other(self.encrypted_file_type, logger),
+            )
 
 
 @plugin
