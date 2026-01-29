@@ -379,7 +379,7 @@ def edit_encrypted_file(
     :param encrypted_file_path: The path to the encrypted file we want to edit
     """
     if logger is None:
-        logger = PythonLogger(LOGGER)
+        logger = get_logger()
 
     python_path = escape_path(sys.executable)
     editor_path = escape_path(editor.__file__)
@@ -461,6 +461,61 @@ def edit_encrypted_file(
         terminate()
 
 
+@functools.lru_cache
+def decrypt_file(
+    sops_binary: SopsBinary, encrypted_file: str, encrypted_file_type: str
+) -> dict:
+    """
+    Use sops installed at the provided location to decrypt the file.
+    This function takes as input the file content and its extension.
+
+    :param sops_binary: The information about the sops binary installed
+        on the system that we can use to decrypt the file.
+    :param encrypted_file: The content of the encrypted file.
+    :param encrypted_file_type: The extension of the encrypted file, so
+        sops knows how to parse the file.
+    """
+    # Run existing binary to decrypt the file
+    cmd = [
+        sops_binary.path,
+        "decrypt",
+        "--filename-override",
+        f"file.{encrypted_file_type}",
+        "--output-type",
+        "json",
+    ]
+    try:
+        output = subprocess.check_output(
+            cmd,
+            input=encrypted_file,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=os.environ,
+        )
+    except subprocess.CalledProcessError as exc:
+        # Report the error message in the logs
+        get_logger().error(
+            "%(prefix)s %(cmd)s",
+            prefix=CMD_LINE_PREFIX,
+            cmd=" ".join(exc.cmd),
+            stderr=str(exc.stderr),
+            returncode=exc.returncode,
+        )
+        raise
+
+    # Leave a trace of the operation in the log
+    get_logger().debug(
+        "%(prefix)s %(cmd)s",
+        prefix=CMD_LINE_PREFIX,
+        cmd=" ".join(cmd),
+        returncode=0,
+    )
+
+    # Output should always be a dict
+    # https://github.com/getsops/sops?tab=readme-ov-file#36top-level-arrays
+    return pydantic.TypeAdapter(dict).validate_python(json.loads(output))
+
+
 @reference("sops::DecryptedFileReference")
 class DecryptedFileReference(Reference[dict]):
     """
@@ -483,36 +538,7 @@ class DecryptedFileReference(Reference[dict]):
         binary = self.resolve_other(self.binary, logger)
         encrypted_file = self.resolve_other(self.encrypted_file, logger)
         encrypted_file_type = self.resolve_other(self.encrypted_file_type, logger)
-
-        # Run existing binary to decrypt the file
-        try:
-            output = subprocess.check_output(
-                [
-                    binary.path,
-                    "decrypt",
-                    "--filename-override",
-                    f"file.{encrypted_file_type}",
-                    "--output-type",
-                    "json",
-                ],
-                input=encrypted_file,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=os.environ,
-            )
-        except subprocess.CalledProcessError as exc:
-            logger.error(
-                "%(prefix)s %(cmd)s",
-                prefix=CMD_LINE_PREFIX,
-                cmd=" ".join(exc.cmd),
-                stderr=str(exc.stderr),
-                returncode=exc.returncode,
-            )
-            raise
-
-        # Output should always be a dict
-        # https://github.com/getsops/sops?tab=readme-ov-file#36top-level-arrays
-        return pydantic.TypeAdapter(dict).validate_python(json.loads(output))
+        return decrypt_file(binary, encrypted_file, encrypted_file_type)
 
 
 @plugin
