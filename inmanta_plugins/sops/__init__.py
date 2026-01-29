@@ -17,6 +17,7 @@ Contact: edvgui@gmail.com
 """
 
 import contextlib
+import contextvars
 import functools
 import json
 import logging
@@ -43,8 +44,30 @@ from inmanta.references import Reference, reference
 from inmanta.util import dict_path
 from inmanta_plugins.sops import editor
 
-LOGGER = logging.getLogger(__name__)
+LOGGER: contextvars.ContextVar[LoggerABC] = contextvars.ContextVar(
+    "LOGGER",
+    default=PythonLogger(logging.getLogger(__name__)),
+)
 CMD_LINE_PREFIX = f"inmanta@{socket.gethostname()}$"
+
+
+def get_logger() -> LoggerABC:
+    """
+    Get the logger that is available in the current context.
+    """
+    return LOGGER.get()
+
+
+@contextlib.contextmanager
+def set_logger(logger: LoggerABC) -> typing.Iterator[None]:
+    """
+    Set the logger that should be used in this context.
+    """
+    token = LOGGER.set(logger)
+    try:
+        yield None
+    finally:
+        LOGGER.reset(token)
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -74,7 +97,7 @@ def find_sops_in_path(
     :param path: A custom list of folder to explore instead of the system's PATH env var.
     """
     if logger is None:
-        logger = PythonLogger(LOGGER)
+        logger = get_logger()
 
     if path is None:
         path = system_path()
@@ -148,7 +171,7 @@ def install_sops_from_github(
     :param version: The version to download from github.
     """
     if logger is None:
-        logger = PythonLogger(LOGGER)
+        logger = get_logger()
 
     if path.exists():
         raise RuntimeError(f"A file already exist at path {path}")
@@ -203,6 +226,64 @@ def install_sops_from_github(
     return sops
 
 
+@functools.lru_cache
+def get_sops(
+    install_to_path: str | None = None,
+    install_from_github: bool = True,
+) -> SopsBinary:
+    """
+    Get a sops binary that can be used in the current context. Install if
+    from github if it can't be found and install_from_github is True.
+
+    :param install_to_path: A path to which the binary should be found, or
+        installed if it is not there yet.  When unset, try to find the binary
+        in any path defined in the PATH env var.
+    :param install_from_github: When set to true, and the binary can not be
+        found, install it from github.
+    """
+    if install_to_path is not None:
+        # Try to find the binary at the given path
+        binary_path = pathlib.Path(install_to_path)
+        try:
+            return find_sops_in_path(
+                binary_path.name,
+                path=[binary_path.parent],
+            )
+        except LookupError:
+            if install_from_github:
+                # Fallback to github install
+                return install_sops_from_github(
+                    binary_path,
+                )
+            else:
+                # Nothing we can do, raise initial error
+                raise
+
+    else:
+        try:
+            # Try to find any binary named sops in the system path
+            return find_sops_in_path()
+        except LookupError:
+            if install_from_github:
+                # We need to find an editable folder in the path
+                # and install the binary from github there
+                for folder in system_path():
+                    try:
+                        return install_sops_from_github(
+                            folder / "sops",
+                        )
+                    except PermissionError:
+                        pass
+                else:
+                    raise RuntimeError(
+                        "Failed to install sops. "
+                        f"None of the folder provided in the system path are writable: {system_path()}"
+                    )
+            else:
+                # Nothing we can do, raise initial error
+                raise
+
+
 @reference("sops::SopsBinaryReference")
 class SopsBinaryReference(Reference[SopsBinary]):
     """
@@ -220,46 +301,11 @@ class SopsBinaryReference(Reference[SopsBinary]):
         self.install_from_github = install_from_github
 
     def resolve(self, logger: LoggerABC) -> SopsBinary:
-        if self.install_to_path is not None:
-            # Try to find the binary at the given path
-            binary_path = pathlib.Path(self.install_to_path)
-            try:
-                return find_sops_in_path(
-                    binary_path.name,
-                    path=[binary_path.parent],
-                    logger=logger,
-                )
-            except LookupError:
-                if self.install_from_github:
-                    # Fallback to github install
-                    return install_sops_from_github(binary_path, logger=logger)
-                else:
-                    # Nothing we can do, raise initial error
-                    raise
-
-        else:
-            try:
-                # Try to find any binary named sops in the system path
-                return find_sops_in_path(logger=logger)
-            except LookupError:
-                if self.install_from_github:
-                    # We need to find an editable folder in the path
-                    # and install the binary from github there
-                    for folder in system_path():
-                        try:
-                            return install_sops_from_github(
-                                folder / "sops", logger=logger
-                            )
-                        except PermissionError:
-                            pass
-                    else:
-                        raise RuntimeError(
-                            "Failed to install sops. "
-                            f"None of the folder provided in the system path are writable: {system_path()}"
-                        )
-                else:
-                    # Nothing we can do, raise initial error
-                    raise
+        with set_logger(logger):
+            return get_sops(
+                self.install_to_path,
+                self.install_from_github,
+            )
 
 
 @functools.lru_cache
@@ -333,7 +379,7 @@ def edit_encrypted_file(
     :param encrypted_file_path: The path to the encrypted file we want to edit
     """
     if logger is None:
-        logger = PythonLogger(LOGGER)
+        logger = get_logger()
 
     python_path = escape_path(sys.executable)
     editor_path = escape_path(editor.__file__)
@@ -415,6 +461,61 @@ def edit_encrypted_file(
         terminate()
 
 
+@functools.lru_cache
+def decrypt_file(
+    sops_binary: SopsBinary, encrypted_file: str, encrypted_file_type: str
+) -> dict:
+    """
+    Use sops installed at the provided location to decrypt the file.
+    This function takes as input the file content and its extension.
+
+    :param sops_binary: The information about the sops binary installed
+        on the system that we can use to decrypt the file.
+    :param encrypted_file: The content of the encrypted file.
+    :param encrypted_file_type: The extension of the encrypted file, so
+        sops knows how to parse the file.
+    """
+    # Run existing binary to decrypt the file
+    cmd = [
+        sops_binary.path,
+        "decrypt",
+        "--filename-override",
+        f"file.{encrypted_file_type}",
+        "--output-type",
+        "json",
+    ]
+    try:
+        output = subprocess.check_output(
+            cmd,
+            input=encrypted_file,
+            stderr=subprocess.PIPE,
+            text=True,
+            env=os.environ,
+        )
+    except subprocess.CalledProcessError as exc:
+        # Report the error message in the logs
+        get_logger().error(
+            "%(prefix)s %(cmd)s",
+            prefix=CMD_LINE_PREFIX,
+            cmd=" ".join(exc.cmd),
+            stderr=str(exc.stderr),
+            returncode=exc.returncode,
+        )
+        raise
+
+    # Leave a trace of the operation in the log
+    get_logger().debug(
+        "%(prefix)s %(cmd)s",
+        prefix=CMD_LINE_PREFIX,
+        cmd=" ".join(cmd),
+        returncode=0,
+    )
+
+    # Output should always be a dict
+    # https://github.com/getsops/sops?tab=readme-ov-file#36top-level-arrays
+    return pydantic.TypeAdapter(dict).validate_python(json.loads(output))
+
+
 @reference("sops::DecryptedFileReference")
 class DecryptedFileReference(Reference[dict]):
     """
@@ -434,39 +535,12 @@ class DecryptedFileReference(Reference[dict]):
         self.encrypted_file_type = encrypted_file_type
 
     def resolve(self, logger: LoggerABC) -> dict:
-        binary = self.resolve_other(self.binary, logger)
-        encrypted_file = self.resolve_other(self.encrypted_file, logger)
-        encrypted_file_type = self.resolve_other(self.encrypted_file_type, logger)
-
-        # Run existing binary to decrypt the file
-        try:
-            output = subprocess.check_output(
-                [
-                    binary.path,
-                    "decrypt",
-                    "--filename-override",
-                    f"file.{encrypted_file_type}",
-                    "--output-type",
-                    "json",
-                ],
-                input=encrypted_file,
-                stderr=subprocess.PIPE,
-                text=True,
-                env=os.environ,
+        with set_logger(logger):
+            return decrypt_file(
+                self.resolve_other(self.binary, logger),
+                self.resolve_other(self.encrypted_file, logger),
+                self.resolve_other(self.encrypted_file_type, logger),
             )
-        except subprocess.CalledProcessError as exc:
-            logger.error(
-                "%(prefix)s %(cmd)s",
-                prefix=CMD_LINE_PREFIX,
-                cmd=" ".join(exc.cmd),
-                stderr=str(exc.stderr),
-                returncode=exc.returncode,
-            )
-            raise
-
-        # Output should always be a dict
-        # https://github.com/getsops/sops?tab=readme-ov-file#36top-level-arrays
-        return pydantic.TypeAdapter(dict).validate_python(json.loads(output))
 
 
 @plugin
@@ -619,7 +693,7 @@ def create_value_in_vault(
     # Resolve the binary, as we will need to use in this compile
     match sops_binary:
         case Reference():
-            resolved_sops_binary = sops_binary.get(PythonLogger(LOGGER))
+            resolved_sops_binary = sops_binary.get(get_logger())
         case _:
             resolved_sops_binary = sops_binary
 
