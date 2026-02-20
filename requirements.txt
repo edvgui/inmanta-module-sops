@@ -1,4 +1,4 @@
 inmanta-module-std==8.7.1
 inmanta-module-config==0.7.1
 inmanta-module-files==2.7.1
-inmanta-dev-dependencies==2.190.0
+inmanta-dev-dependencies==2.192.0
